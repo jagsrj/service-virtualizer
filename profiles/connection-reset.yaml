@@ -1,0 +1,6 @@
+name: connection-reset
+description: TCP connection reset after a short wait. Tests retry and circuit-breaker behaviour.
+latency:
+  type: fixed
+  ms: 200
+fault: CONNECTION_RESET_BY_PEER

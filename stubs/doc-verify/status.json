@@ -1,0 +1,13 @@
+{
+  "name": "Get verification status",
+  "request": {
+    "method": "GET",
+    "urlPathTemplate": "/v1/documents/{verificationId}/status"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": "{\"verificationId\":\"{{request.path.verificationId}}\",\"status\":\"VERIFIED\"}",
+    "transformers": ["response-template"]
+  }
+}

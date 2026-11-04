@@ -1,0 +1,15 @@
+{
+  "name": "Submit document for verification",
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/documents/verify",
+    "headers": { "Content-Type": { "contains": "application/json" } },
+    "bodyPatterns": [{ "matchesJsonPath": "$.documentType" }]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": "{\"verificationId\":\"{{randomValue type='UUID'}}\",\"documentType\":\"{{jsonPath request.body '$.documentType'}}\",\"status\":\"VERIFIED\",\"confidence\":0.97,\"checkedAt\":\"{{now}}\"}",
+    "transformers": ["response-template"]
+  }
+}

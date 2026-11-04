@@ -1,0 +1,7 @@
+name: degraded
+description: Dependency is struggling. Slow, with a long tail, but still answering.
+latency:
+  type: lognormal
+  p50Ms: 600
+  p95Ms: 2500
+  capMs: 8000

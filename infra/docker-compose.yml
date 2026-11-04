@@ -1,0 +1,29 @@
+# WireMock (the engine) + the control API. Point your app under test at :8080.
+services:
+  wiremock:
+    image: wiremock/wiremock:3.13.2
+    ports:
+      - '8080:8080'
+    command:
+      - --async-response-enabled=true # delays don't hold Jetty threads, so slow profiles don't cap throughput
+      - --async-response-threads=100
+      - --container-threads=200
+      - --max-request-journal-entries=20000 # bounded memory during long load tests
+      - --disable-banner
+    healthcheck:
+      test: ['CMD', 'curl', '-fs', 'http://localhost:8080/__admin/health']
+      interval: 5s
+      retries: 20
+
+  control:
+    build: ..
+    ports:
+      - '4100:4100'
+    environment:
+      WIREMOCK_URL: http://wiremock:8080
+    volumes:
+      - ../profiles:/app/profiles:ro
+      - ../stubs:/app/stubs:ro
+    depends_on:
+      wiremock:
+        condition: service_healthy

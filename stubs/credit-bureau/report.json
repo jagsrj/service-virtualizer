@@ -1,0 +1,31 @@
+{
+  "mappings": [
+    {
+      "name": "Credit report - good standing",
+      "priority": 5,
+      "request": {
+        "method": "GET",
+        "urlPathTemplate": "/v2/reports/{customerId}"
+      },
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": "{\"customerId\":\"{{request.path.customerId}}\",\"score\":742,\"band\":\"GOOD\"}",
+        "transformers": ["response-template"]
+      }
+    },
+    {
+      "name": "Credit report - customer not found",
+      "priority": 1,
+      "request": {
+        "method": "GET",
+        "urlPath": "/v2/reports/UNKNOWN"
+      },
+      "response": {
+        "status": 404,
+        "headers": { "Content-Type": "application/json" },
+        "body": "{\"error\":\"not_found\"}"
+      }
+    }
+  ]
+}

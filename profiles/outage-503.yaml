@@ -1,0 +1,8 @@
+name: outage-503
+description: Dependency is down behind a load balancer. Fast 503s.
+latency:
+  type: uniform
+  minMs: 5
+  maxMs: 30
+status: 503
+body: '{"error":"service_unavailable","message":"Virtual outage injected by service-virtualizer"}'

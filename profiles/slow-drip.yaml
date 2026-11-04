@@ -1,0 +1,8 @@
+name: slow-drip
+description: Headers arrive quickly, but the body trickles in over 5 seconds. Exposes missing read timeouts.
+latency:
+  type: fixed
+  ms: 50
+dribble:
+  chunks: 10
+  durationMs: 5000

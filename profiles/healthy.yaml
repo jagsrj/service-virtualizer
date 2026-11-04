@@ -1,0 +1,7 @@
+name: healthy
+description: Normal production behaviour. Set p50/p95 from your APM data (Dynatrace, Splunk).
+latency:
+  type: lognormal
+  p50Ms: 80
+  p95Ms: 160
+  capMs: 1000
