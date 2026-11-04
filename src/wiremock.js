@@ -51,6 +51,15 @@ export class WireMockClient {
     throw new WireMockError(`WireMock did not become healthy at ${this.baseUrl}`, 502);
   }
 
+  // Info from the service-virtualizer WireMock extension, or null if it isn't loaded.
+  async extensionInfo() {
+    try {
+      return await this.#request('GET', '/sv/info');
+    } catch {
+      return null;
+    }
+  }
+
   async listMappings() {
     return (await this.#request('GET', '/mappings')).mappings ?? [];
   }

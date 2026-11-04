@@ -1,0 +1,19 @@
+name: flaky
+description: Healthy latency, but 2% of requests fail - mostly 500s, some fast 503s and the odd connection reset.
+latency:
+  type: lognormal
+  p50Ms: 80
+  p95Ms: 160
+  capMs: 1000
+errors:
+  rate: 0.02
+  responses:
+    - status: 500
+      body: '{"error":"internal_error"}'
+      weight: 3
+    - status: 503
+      body: '{"error":"service_unavailable"}'
+      latencyMs: 10
+      weight: 1
+    - fault: CONNECTION_RESET_BY_PEER
+      weight: 1

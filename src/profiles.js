@@ -34,6 +34,30 @@ const latencySchema = z.discriminatedUnion('type', [
     .strict()
 ]);
 
+const errorResponseSchema = z
+  .object({
+    status: z.number().int().min(100).max(599).optional(),
+    body: z.string().optional(),
+    fault: z.enum(FAULTS).optional(),
+    latencyMs: ms.optional(),
+    weight: z.number().positive().default(1)
+  })
+  .strict()
+  .refine((r) => (r.status === undefined) !== (r.fault === undefined), {
+    message: 'each error response needs exactly one of status or fault'
+  })
+  .refine((r) => !(r.fault && r.body !== undefined), { message: 'body cannot be used with fault' });
+
+const errorsSchema = z
+  .object({
+    rate: z.number().gt(0).max(1),
+    responses: z.array(errorResponseSchema).min(1)
+  })
+  .strict();
+
+export const ERROR_TRANSFORMER = 'sv-errors';
+export const ERROR_PARAMS_KEY = 'svErrors';
+
 export const profileSchema = z
   .object({
     name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'use lowercase letters, digits and dashes'),
@@ -45,10 +69,14 @@ export const profileSchema = z
       .optional(),
     status: z.number().int().min(100).max(599).optional(),
     body: z.string().optional(),
-    fault: z.enum(FAULTS).optional()
+    fault: z.enum(FAULTS).optional(),
+    errors: errorsSchema.optional()
   })
   .strict()
   .superRefine((p, ctx) => {
+    if (p.errors && (p.fault || p.dribble)) {
+      ctx.addIssue({ code: 'custom', path: ['errors'], message: 'errors cannot be combined with fault or dribble' });
+    }
     const l = p.latency;
     if (l.type === 'uniform' && l.minMs > l.maxMs) {
       ctx.addIssue({ code: 'custom', path: ['latency'], message: 'minMs must be <= maxMs' });
@@ -145,6 +173,11 @@ export function toWireMockResponse(baseline, profile) {
       numberOfChunks: profile.dribble.chunks,
       totalDuration: profile.dribble.durationMs
     };
+  }
+  if (profile.errors) {
+    // Handled inside WireMock by the sv-errors extension (see extension/).
+    response.transformers = [...new Set([...(response.transformers ?? []), ERROR_TRANSFORMER])];
+    response.transformerParameters = { ...response.transformerParameters, [ERROR_PARAMS_KEY]: profile.errors };
   }
   return response;
 }

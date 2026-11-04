@@ -42,6 +42,40 @@ curl -X POST localhost:4100/api/services/doc-verify/reset
 
 Without Docker: run WireMock yourself (`java -jar wiremock-standalone.jar --port 8080 --async-response-enabled true`), then `npm install && npm start`.
 
+## Error injection
+
+Real dependencies rarely fail completely. More often a small share of requests fails while the rest look fine. Add an `errors` section to any profile:
+
+```yaml
+name: flaky
+latency: { type: lognormal, p50Ms: 80, p95Ms: 160, capMs: 1000 }
+errors:
+  rate: 0.02 # 2% of requests fail
+  responses: # which failure, chosen by weight
+    - status: 500
+      body: '{"error":"internal_error"}'
+      weight: 3
+    - status: 503
+      latencyMs: 10 # errors can have their own timing (fast 503s...)
+      weight: 1
+    - fault: CONNECTION_RESET_BY_PEER
+      weight: 1
+```
+
+Bundled: `flaky` (2% errors, healthy latency) and `brownout` (slow, plus 10% errors including 10-second gateway timeouts).
+
+WireMock can't do percentage-based errors on its own, so this runs in a small WireMock extension (`extension/`, about 150 lines of Java). For each request, it picks error or normal using the profile's rate. Injected status errors carry an `X-SV-Injected: true` header, so you can tell them apart from real errors in JMeter results. `GET /api/services/:service/stats` reports the observed `errorRate`.
+
+The Compose stack builds WireMock with the extension included. To run it yourself:
+
+```bash
+cd extension
+mvn package                                            # or: WIREMOCK_JAR=/path/to/wiremock.jar ./build.sh
+java -cp wiremock-standalone-3.13.2.jar:target/sv-wiremock-extension.jar wiremock.Run --port 8080 --async-response-enabled true
+```
+
+The extension registers itself through Java's service loader, so no `--extensions` flag is needed. `GET /api/health` shows whether it's loaded. Applying an error profile without the extension is refused with a clear message rather than silently doing nothing.
+
 ## Record mode
 
 Point the virtual service at the real dependency, run your traffic through it, and stop. You get stubs **and** a latency profile fitted to how the real dependency actually behaved.
@@ -101,10 +135,10 @@ Saving never replaces an existing profile unless you pass `"overwrite": true`.
 ## Concepts
 
 - **Virtual service**: every stub in `stubs/<service>/` belongs to that service (stored as `metadata.service` in WireMock). Profiles are applied to a whole service at once.
-- **Profile**: YAML in `profiles/`. It controls latency (`none`, `fixed`, `uniform`, `lognormal`), and optionally `status` + `body` (for example, a 503 outage), `dribble` (slow body), or a `fault` (`CONNECTION_RESET_BY_PEER`, `EMPTY_RESPONSE`, `MALFORMED_RESPONSE_CHUNK`, `RANDOM_DATA_THEN_CLOSE`).
+- **Profile**: YAML in `profiles/`. It controls an error rate (see above), latency (`none`, `fixed`, `uniform`, `lognormal`), and optionally `status` + `body` (for example, a 503 outage), `dribble` (slow body), or a `fault` (`CONNECTION_RESET_BY_PEER`, `EMPTY_RESPONSE`, `MALFORMED_RESPONSE_CHUNK`, `RANDOM_DATA_THEN_CLOSE`).
 - **Baseline**: the stub's original response. It is saved the first time a profile is applied. Every profile is built from the baseline, so switching profiles never stacks delays, and `reset` restores it exactly.
 
-Bundled profiles: `healthy`, `degraded`, `slow-drip`, `outage-503`, `connection-reset`.
+Bundled profiles: `healthy`, `degraded`, `slow-drip`, `outage-503`, `connection-reset`, `flaky`, `brownout`.
 
 ## Control API
 
@@ -143,6 +177,7 @@ Bundled profiles: `healthy`, `degraded`, `slow-drip`, `outage-503`, `connection-
 ```bash
 npm test                                                 # unit tests
 WIREMOCK_JAR=/path/to/wiremock-standalone.jar npm test   # plus end-to-end tests against a real WireMock
+SV_EXTENSION_JAR=extension/target/sv-wiremock-extension.jar WIREMOCK_JAR=... npm test   # plus error-injection tests
 ```
 
 The recording tests put a fake dependency with known latency (lognormal, median 100ms, sigma 0.4) behind WireMock. They check that the fit recovers it, that the recorded stubs answer once the dependency is shut down, and that replaying the fitted profile reproduces the latency.
@@ -151,7 +186,7 @@ The recording tests put a fake dependency with known latency (lognormal, median 
 
 1. ✅ WireMock engine + control API + latency/fault profiles
 2. ✅ Record mode: proxy to the real dependency, save stubs, and **fit a profile to the recorded latencies**
-3. Error-rate profiles (for example, 2% of requests return 500), via a WireMock extension
+3. ✅ Error-rate profiles (for example, 2% of requests return 500), via a WireMock extension
 4. Concurrency caps, so the virtual service saturates like the real one
 5. Metrics to InfluxDB/Grafana; hooks for perf-framework (start services before a run) and chaos-runner (switch profiles mid-test)
 6. More protocols: SOAP, gRPC, then Kafka/MQ

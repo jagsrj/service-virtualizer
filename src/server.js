@@ -35,11 +35,16 @@ export function createApp(virtualizer, recorder) {
 
   app.get(
     '/api/health',
-    route(async () => ({
-      status: 'ok',
-      wiremock: (await virtualizer.wiremock.isUp()) ? 'up' : 'down',
-      wiremockUrl: virtualizer.wiremock.baseUrl
-    }))
+    route(async () => {
+      const up = await virtualizer.wiremock.isUp();
+      const ext = up ? await virtualizer.wiremock.extensionInfo() : null;
+      return {
+        status: 'ok',
+        wiremock: up ? 'up' : 'down',
+        wiremockUrl: virtualizer.wiremock.baseUrl,
+        errorInjection: ext ? { loaded: true, version: ext.version } : { loaded: false }
+      };
+    })
   );
 
   app.get(

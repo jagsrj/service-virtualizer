@@ -59,6 +59,13 @@ export class Virtualizer {
   applyProfile(service, profileName) {
     const profile = this.getProfile(profileName);
     return this.#withLock(service, async () => {
+      if (profile.errors && !(await this.wiremock.extensionInfo())) {
+        throw new HttpError(
+          409,
+          `Profile "${profile.name}" injects errors, which needs the service-virtualizer WireMock extension. ` +
+            'Run WireMock with extension/target/sv-wiremock-extension.jar on its classpath (see README).'
+        );
+      }
       const mappings = await this.#mappingsFor(service);
       const appliedAt = new Date().toISOString();
       for (const m of mappings) {
@@ -99,16 +106,26 @@ export class Virtualizer {
     const mine = events.filter((e) => e.stubMapping?.metadata?.service === service);
     const totals = mine.map((e) => e.timing?.totalTime).filter((t) => typeof t === 'number');
     const statuses = {};
+    let errors = 0;
+    let injected = 0;
     for (const e of mine) {
-      const key = e.response?.fault ?? String(e.response?.status ?? 'unknown');
+      const fault = e.responseDefinition?.fault ?? e.response?.fault;
+      const status = e.response?.status;
+      const key = fault ?? String(status ?? 'unknown');
       statuses[key] = (statuses[key] ?? 0) + 1;
+      if (fault || status >= 500) errors += 1;
+      const headers = e.response?.headers ?? {};
+      if (fault || Object.keys(headers).some((h) => h.toLowerCase() === 'x-sv-injected')) injected += 1;
     }
+    const rate = (n) => (mine.length ? Math.round((n / mine.length) * 10000) / 10000 : 0);
     return {
       service,
       sampled: mine.length,
       journalWindow: events.length,
       latencyMs: summarize(totals),
-      statuses
+      statuses,
+      errorRate: rate(errors),
+      injectedRate: rate(injected)
     };
   }
 
@@ -170,6 +187,7 @@ export function describeProfile(profile) {
     ...(profile.status !== undefined && { status: profile.status }),
     ...(profile.fault && { fault: profile.fault }),
     ...(profile.dribble && { dribble: profile.dribble }),
+    ...(profile.errors && { errors: profile.errors }),
     expectedMs: expectedPercentiles(profile.latency)
   };
 }

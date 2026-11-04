@@ -151,4 +151,8 @@ test('errors are clear', { skip }, async () => {
   assert.equal(unknownService.status, 404);
   const badBody = await post(`${api}/services/doc-verify/profile`, { wrong: 1 });
   assert.equal(badBody.status, 400);
+  // This WireMock runs without the extension, so error profiles must be refused clearly.
+  const noExtension = await post(`${api}/services/doc-verify/profile`, { profile: 'flaky' });
+  assert.equal(noExtension.status, 409);
+  assert.match((await noExtension.json()).error, /extension/);
 });

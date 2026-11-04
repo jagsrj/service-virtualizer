@@ -71,7 +71,15 @@ test('invalid profiles are rejected with a clear message', () => {
 
 test('bundled profiles all load', async () => {
   const profiles = await loadProfiles(path.join(root, 'profiles'));
-  assert.deepEqual([...profiles.keys()].sort(), ['connection-reset', 'degraded', 'healthy', 'outage-503', 'slow-drip']);
+  assert.deepEqual([...profiles.keys()].sort(), [
+    'brownout',
+    'connection-reset',
+    'degraded',
+    'flaky',
+    'healthy',
+    'outage-503',
+    'slow-drip'
+  ]);
 });
 
 test('percentile uses nearest rank', () => {
@@ -79,4 +87,40 @@ test('percentile uses nearest rank', () => {
   assert.equal(percentile(s, 0.5), 5);
   assert.equal(percentile(s, 0.95), 10);
   assert.equal(percentile([], 0.5), null);
+});
+
+test('error profiles add the sv-errors transformer and keep existing ones', () => {
+  const p = parseProfile({
+    name: 'e',
+    latency: { type: 'fixed', ms: 5 },
+    errors: { rate: 0.05, responses: [{ status: 500 }, { fault: 'EMPTY_RESPONSE', weight: 2 }] }
+  });
+  const baseline = { status: 200, transformers: ['response-template'], transformerParameters: { a: 1 } };
+  const r = toWireMockResponse(baseline, p);
+  assert.deepEqual(r.transformers, ['response-template', 'sv-errors']);
+  assert.equal(r.transformerParameters.a, 1);
+  assert.deepEqual(r.transformerParameters.svErrors, {
+    rate: 0.05,
+    responses: [
+      { status: 500, weight: 1 },
+      { fault: 'EMPTY_RESPONSE', weight: 2 }
+    ]
+  });
+  assert.deepEqual(baseline.transformers, ['response-template'], 'baseline must not be mutated');
+  // Switching to a profile without errors removes the transformer again.
+  assert.equal(toWireMockResponse(baseline, parseProfile({ name: 'h' })).transformers.includes('sv-errors'), false);
+});
+
+test('invalid error settings are rejected', () => {
+  const bad =
+    (errors, extra = {}) =>
+    () =>
+      parseProfile({ name: 'x', errors, ...extra });
+  assert.throws(bad({ rate: 0, responses: [{ status: 500 }] }), /rate/);
+  assert.throws(bad({ rate: 1.5, responses: [{ status: 500 }] }), /rate/);
+  assert.throws(bad({ rate: 0.1, responses: [] }), /responses/);
+  assert.throws(bad({ rate: 0.1, responses: [{ body: 'x' }] }), /exactly one of status or fault/);
+  assert.throws(bad({ rate: 0.1, responses: [{ status: 500, fault: 'EMPTY_RESPONSE' }] }), /exactly one/);
+  assert.throws(bad({ rate: 0.1, responses: [{ fault: 'EMPTY_RESPONSE', body: 'x' }] }), /body cannot/);
+  assert.throws(bad({ rate: 0.1, responses: [{ status: 500 }] }, { fault: 'EMPTY_RESPONSE' }), /cannot be combined/);
 });

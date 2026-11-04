@@ -1,7 +1,9 @@
 # WireMock (the engine) + the control API. Point your app under test at :8080.
 services:
   wiremock:
-    image: wiremock/wiremock:3.13.2
+    build:
+      context: ..
+      dockerfile: infra/wiremock.Dockerfile
     ports:
       - '8080:8080'
     command:
