@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Recorder } from './recorder.js';
 import { createApp } from './server.js';
 import { Virtualizer } from './virtualizer.js';
 import { WireMockClient } from './wiremock.js';
@@ -11,7 +12,8 @@ const config = {
   wiremockUrl: process.env.WIREMOCK_URL ?? 'http://localhost:8080',
   profilesDir: process.env.PROFILES_DIR ?? path.join(root, 'profiles'),
   stubsDir: process.env.STUBS_DIR ?? path.join(root, 'stubs'),
-  loadStubsOnStart: process.env.LOAD_STUBS_ON_START !== 'false'
+  loadStubsOnStart: process.env.LOAD_STUBS_ON_START !== 'false',
+  saveRecordings: process.env.SAVE_RECORDINGS !== 'false'
 };
 
 const wiremock = new WireMockClient(config.wiremockUrl);
@@ -26,6 +28,8 @@ if (config.loadStubsOnStart) {
   console.log(`Loaded ${stubsLoaded} stubs into WireMock for: ${services.join(', ') || '(none)'}`);
 }
 
-createApp(virtualizer).listen(config.port, () => {
+const recorder = new Recorder({ virtualizer, save: config.saveRecordings });
+
+createApp(virtualizer, recorder).listen(config.port, () => {
   console.log(`service-virtualizer control API on :${config.port} (WireMock at ${config.wiremockUrl})`);
 });

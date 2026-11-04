@@ -9,7 +9,7 @@ import {
   parseProfile,
   toWireMockResponse
 } from '../src/profiles.js';
-import { percentile } from '../src/virtualizer.js';
+import { percentile } from '../src/stats.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

@@ -73,8 +73,22 @@ export class WireMockClient {
     });
   }
 
-  async serveEvents(limit) {
-    return (await this.#request('GET', `/requests?limit=${limit}`)).requests ?? [];
+  async serveEvents(limit, since) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (since) query.set('since', since);
+    return (await this.#request('GET', `/requests?${query}`)).requests ?? [];
+  }
+
+  startRecording(spec) {
+    return this.#request('POST', '/recordings/start', spec);
+  }
+
+  async stopRecording() {
+    return (await this.#request('POST', '/recordings/stop')).mappings ?? [];
+  }
+
+  async recordingStatus() {
+    return (await this.#request('GET', '/recordings/status')).status;
   }
 
   async unmatchedRequests() {

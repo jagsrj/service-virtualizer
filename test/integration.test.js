@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../src/server.js';
+import { Recorder } from '../src/recorder.js';
 import { Virtualizer } from '../src/virtualizer.js';
 import { WireMockClient } from '../src/wiremock.js';
 
@@ -45,7 +46,7 @@ before(async () => {
   const virtualizer = new Virtualizer({ wiremock: client, profilesDir, stubsDir: path.join(root, 'stubs') });
   await virtualizer.reloadProfiles();
   await new Promise((resolve) => {
-    server = createApp(virtualizer).listen(0, resolve);
+    server = createApp(virtualizer, new Recorder({ virtualizer, save: false })).listen(0, resolve);
   });
   api = `http://localhost:${server.address().port}/api`;
 });

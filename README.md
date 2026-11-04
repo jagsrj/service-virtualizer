@@ -42,6 +42,60 @@ curl -X POST localhost:4100/api/services/doc-verify/reset
 
 Without Docker: run WireMock yourself (`java -jar wiremock-standalone.jar --port 8080 --async-response-enabled true`), then `npm install && npm start`.
 
+## Record mode
+
+Point the virtual service at the real dependency, run your traffic through it, and stop. You get stubs **and** a latency profile fitted to how the real dependency actually behaved.
+
+```bash
+curl -X POST localhost:4100/api/recordings/start -H 'content-type: application/json' \
+  -d '{"service":"core-banking","targetUrl":"https://core-banking.test.internal"}'
+# point the app (or a JMeter smoke test) at localhost:8080 and exercise the flows
+curl -X POST localhost:4100/api/recordings/stop -H 'content-type: application/json' -d '{}'
+```
+
+The stop response shows what was captured and how good the fit is:
+
+```json
+{
+  "service": "core-banking",
+  "stubsRecorded": 4,
+  "samples": 400,
+  "stubsFile": "stubs/core-banking/recorded-20261104-161502.json",
+  "profileFile": "profiles/core-banking-recorded.yaml",
+  "fit": {
+    "observedMs": { "p50": 107, "p90": 178, "p95": 207, "p99": 238, "max": 358 },
+    "fittedMs":   { "p50": 107, "p90": 179, "p95": 207, "p99": 272 },
+    "fitErrorPct": { "p90": 0.6, "p99": 14.3 },
+    "warnings": []
+  }
+}
+```
+
+Then replay it with the real dependency switched off: `POST /api/services/core-banking/profile {"profile":"core-banking-recorded"}`.
+
+How it works:
+- WireMock proxies to `targetUrl` and records one stub per unique request (JSON bodies matched with `equalToJson`, ignoring extra fields and array order).
+- The real response time of every proxied request is read from WireMock's journal.
+- The fit uses **quantile matching**: median = observed p50, and sigma comes from observed p95. The p50 and p95 the fit reproduces are the ones you report on. The cap is the largest latency observed.
+- Recorded stubs and the fitted profile are written to `stubs/` and `profiles/`, so you can review them and commit them to git.
+- Warnings flag small samples (under 20) and tails that aren't lognormal-shaped. A common case is a bimodal cache hit/miss pattern, where the fitted p99 would mislead.
+
+Things to know:
+- Requests that already match an existing stub are answered by that stub, not recorded. Record into a new service name.
+- Recorded latency includes the proxy hop, and replay adds WireMock's own processing time (a few ms on real hardware; ~10–15ms in a constrained container). This only matters for dependencies that respond in under ~20ms.
+- One recording at a time (a WireMock limitation).
+
+### Fit from other sources
+
+Already have latencies from a JMeter JTL, Dynatrace or Splunk? Fit them directly:
+
+```bash
+curl -X POST localhost:4100/api/profiles/fit -H 'content-type: application/json' \
+  -d '{"name":"doc-verify-prod","samplesMs":[112, 98, 143, ...],"save":true}'
+```
+
+Saving never replaces an existing profile unless you pass `"overwrite": true`.
+
 ## Concepts
 
 - **Virtual service**: every stub in `stubs/<service>/` belongs to that service (stored as `metadata.service` in WireMock). Profiles are applied to a whole service at once.
@@ -85,14 +139,16 @@ Bundled profiles: `healthy`, `degraded`, `slow-drip`, `outage-503`, `connection-
 ## Tests
 
 ```bash
-npm test                                          # unit tests
+npm test                                                 # unit tests
 WIREMOCK_JAR=/path/to/wiremock-standalone.jar npm test   # plus end-to-end tests against a real WireMock
 ```
+
+The recording tests put a fake dependency with known latency (lognormal, median 100ms, sigma 0.4) behind WireMock. They check that the fit recovers it, that the recorded stubs answer once the dependency is shut down, and that replaying the fitted profile reproduces the latency.
 
 ## Roadmap
 
 1. ✅ WireMock engine + control API + latency/fault profiles
-2. Record mode: proxy to the real dependency, save stubs, and **fit a profile to the recorded latencies**
+2. ✅ Record mode: proxy to the real dependency, save stubs, and **fit a profile to the recorded latencies**
 3. Error-rate profiles (for example, 2% of requests return 500), via a WireMock extension
 4. Concurrency caps, so the virtual service saturates like the real one
 5. Metrics to InfluxDB/Grafana; hooks for perf-framework (start services before a run) and chaos-runner (switch profiles mid-test)

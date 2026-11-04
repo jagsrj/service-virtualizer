@@ -4,8 +4,27 @@ import { z } from 'zod';
 import { HttpError, describeProfile } from './virtualizer.js';
 
 const applyBody = z.object({ profile: z.string().min(1) }).strict();
+const startBody = z
+  .object({ service: z.string(), targetUrl: z.string(), urlPathPattern: z.string().optional() })
+  .strict();
+const stopBody = z.object({ save: z.boolean().optional(), fit: z.boolean().optional() }).strict();
+const fitBody = z
+  .object({
+    name: z.string(),
+    samplesMs: z.array(z.number()),
+    description: z.string().optional(),
+    save: z.boolean().optional(),
+    overwrite: z.boolean().optional()
+  })
+  .strict();
 
-export function createApp(virtualizer) {
+function parseBody(schema, body, hint) {
+  const parsed = schema.safeParse(body ?? {});
+  if (!parsed.success) throw new HttpError(400, `Invalid body: ${hint}`);
+  return parsed.data;
+}
+
+export function createApp(virtualizer, recorder) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -34,6 +53,27 @@ export function createApp(virtualizer) {
   app.post(
     '/api/profiles/reload',
     route(() => virtualizer.reloadProfiles())
+  );
+  app.post(
+    '/api/profiles/fit',
+    route((req) =>
+      recorder.fitFromSamples(
+        parseBody(fitBody, req.body, '{"name", "samplesMs": [..], "save"?, "overwrite"?, "description"?}')
+      )
+    )
+  );
+
+  app.get(
+    '/api/recordings',
+    route(() => recorder.status())
+  );
+  app.post(
+    '/api/recordings/start',
+    route((req) => recorder.start(parseBody(startBody, req.body, '{"service", "targetUrl", "urlPathPattern"?}')))
+  );
+  app.post(
+    '/api/recordings/stop',
+    route((req) => recorder.stop(parseBody(stopBody, req.body, '{"save"?: boolean, "fit"?: boolean}')))
   );
 
   app.get(

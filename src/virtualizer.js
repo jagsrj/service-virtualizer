@@ -3,6 +3,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expectedPercentiles, loadProfiles, toWireMockResponse } from './profiles.js';
+import { summarize } from './stats.js';
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -170,24 +171,5 @@ export function describeProfile(profile) {
     ...(profile.fault && { fault: profile.fault }),
     ...(profile.dribble && { dribble: profile.dribble }),
     expectedMs: expectedPercentiles(profile.latency)
-  };
-}
-
-export function percentile(sorted, q) {
-  if (!sorted.length) return null;
-  const rank = Math.ceil(q * sorted.length);
-  return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
-}
-
-function summarize(values) {
-  if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  return {
-    min: sorted[0],
-    p50: percentile(sorted, 0.5),
-    p90: percentile(sorted, 0.9),
-    p95: percentile(sorted, 0.95),
-    p99: percentile(sorted, 0.99),
-    max: sorted.at(-1)
   };
 }
