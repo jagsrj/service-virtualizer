@@ -5,9 +5,9 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.jagsrj</groupId>
   <artifactId>sv-wiremock-extension</artifactId>
-  <version>0.3.0</version>
+  <version>0.4.0</version>
   <name>service-virtualizer WireMock extension</name>
-  <description>Percentage-based error injection for WireMock, driven by service-virtualizer profiles.</description>
+  <description>Error injection and capacity (concurrency) modelling for WireMock, driven by service-virtualizer profiles.</description>
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>

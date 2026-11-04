@@ -59,10 +59,11 @@ export class Virtualizer {
   applyProfile(service, profileName) {
     const profile = this.getProfile(profileName);
     return this.#withLock(service, async () => {
-      if (profile.errors && !(await this.wiremock.extensionInfo())) {
+      if ((profile.errors || profile.concurrency) && !(await this.wiremock.extensionInfo())) {
+        const what = profile.errors ? 'injects errors' : 'limits concurrency';
         throw new HttpError(
           409,
-          `Profile "${profile.name}" injects errors, which needs the service-virtualizer WireMock extension. ` +
+          `Profile "${profile.name}" ${what}, which needs the service-virtualizer WireMock extension. ` +
             'Run WireMock with extension/target/sv-wiremock-extension.jar on its classpath (see README).'
         );
       }
@@ -72,10 +73,12 @@ export class Virtualizer {
         const baseline = m.metadata?.sv?.baseline ?? m.response;
         await this.wiremock.updateMapping({
           ...m,
-          response: toWireMockResponse(baseline, profile),
+          response: toWireMockResponse(baseline, profile, { service }),
           metadata: { ...m.metadata, sv: { baseline, profile: profile.name, appliedAt } }
         });
       }
+      // Every profile switch starts with an empty queue.
+      await this.wiremock.resetPool(service);
       return {
         service,
         profile: profile.name,
@@ -96,6 +99,7 @@ export class Virtualizer {
         await this.wiremock.updateMapping({ ...m, response: sv.baseline, metadata: rest });
         restored += 1;
       }
+      await this.wiremock.resetPool(service);
       return { service, profile: 'baseline', stubsRestored: restored };
     });
   }
@@ -108,14 +112,22 @@ export class Virtualizer {
     const statuses = {};
     let errors = 0;
     let injected = 0;
+    let rejected = 0;
+    const queueWaits = [];
     for (const e of mine) {
       const fault = e.responseDefinition?.fault ?? e.response?.fault;
       const status = e.response?.status;
       const key = fault ?? String(status ?? 'unknown');
       statuses[key] = (statuses[key] ?? 0) + 1;
       if (fault || status >= 500) errors += 1;
-      const headers = e.response?.headers ?? {};
-      if (fault || Object.keys(headers).some((h) => h.toLowerCase() === 'x-sv-injected')) injected += 1;
+      const headers = Object.fromEntries(
+        Object.entries(e.response?.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v])
+      );
+      const isRejected = 'x-sv-rejected' in headers;
+      if (isRejected) rejected += 1;
+      else if (fault || 'x-sv-injected' in headers) injected += 1;
+      const wait = Number(headers['x-sv-queue-wait-ms']);
+      if (!isRejected && Number.isFinite(wait)) queueWaits.push(wait);
     }
     const rate = (n) => (mine.length ? Math.round((n / mine.length) * 10000) / 10000 : 0);
     return {
@@ -125,8 +137,19 @@ export class Virtualizer {
       latencyMs: summarize(totals),
       statuses,
       errorRate: rate(errors),
-      injectedRate: rate(injected)
+      injectedRate: rate(injected),
+      rejectedRate: rate(rejected),
+      ...(queueWaits.length && { queueWaitMs: summarize(queueWaits) })
     };
+  }
+
+  // Live state of the service's capacity pool (busy workers, queue length, totals).
+  async capacity(service) {
+    const info = await this.wiremock.extensionInfo();
+    if (!info) throw new HttpError(409, 'The service-virtualizer WireMock extension is not loaded');
+    const pool = info.pools?.[service];
+    if (!pool) return { service, limited: false };
+    return { service, limited: true, ...pool };
   }
 
   async unmatched() {
@@ -188,6 +211,7 @@ export function describeProfile(profile) {
     ...(profile.fault && { fault: profile.fault }),
     ...(profile.dribble && { dribble: profile.dribble }),
     ...(profile.errors && { errors: profile.errors }),
+    ...(profile.concurrency && { concurrency: profile.concurrency }),
     expectedMs: expectedPercentiles(profile.latency)
   };
 }

@@ -110,6 +110,11 @@ export function createApp(virtualizer, recorder) {
   );
 
   app.get(
+    '/api/services/:service/capacity',
+    route((req) => virtualizer.capacity(req.params.service))
+  );
+
+  app.get(
     '/api/unmatched',
     route(() => virtualizer.unmatched())
   );

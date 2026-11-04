@@ -55,8 +55,20 @@ const errorsSchema = z
   })
   .strict();
 
-export const ERROR_TRANSFORMER = 'sv-errors';
-export const ERROR_PARAMS_KEY = 'svErrors';
+const concurrencySchema = z
+  .object({
+    maxConcurrent: z.number().int().min(1),
+    maxQueue: z.number().int().min(0).optional(),
+    queueTimeoutMs: ms.optional(),
+    reject: z
+      .object({ status: z.number().int().min(100).max(599).default(503), body: z.string().optional() })
+      .strict()
+      .optional()
+  })
+  .strict();
+
+// The service-virtualizer WireMock extension (see extension/) handles errors and concurrency.
+export const SV_TRANSFORMER = 'sv';
 
 export const profileSchema = z
   .object({
@@ -70,10 +82,14 @@ export const profileSchema = z
     status: z.number().int().min(100).max(599).optional(),
     body: z.string().optional(),
     fault: z.enum(FAULTS).optional(),
-    errors: errorsSchema.optional()
+    errors: errorsSchema.optional(),
+    concurrency: concurrencySchema.optional()
   })
   .strict()
   .superRefine((p, ctx) => {
+    if (p.concurrency && p.fault) {
+      ctx.addIssue({ code: 'custom', path: ['concurrency'], message: 'concurrency cannot be combined with fault' });
+    }
     if (p.errors && (p.fault || p.dribble)) {
       ctx.addIssue({ code: 'custom', path: ['errors'], message: 'errors cannot be combined with fault or dribble' });
     }
@@ -153,7 +169,7 @@ const BODY_KEYS = ['body', 'jsonBody', 'base64Body', 'bodyFileName'];
 
 // Build a WireMock response from the stub's original (baseline) response plus a profile.
 // Always starts from the baseline, so profiles never stack on top of each other.
-export function toWireMockResponse(baseline, profile) {
+export function toWireMockResponse(baseline, profile, { service } = {}) {
   const response = structuredClone(baseline ?? {});
   for (const k of SHAPING_KEYS) delete response[k];
 
@@ -162,6 +178,7 @@ export function toWireMockResponse(baseline, profile) {
     applyLatency(faulted, profile.latency);
     return faulted;
   }
+
   if (profile.status !== undefined) response.status = profile.status;
   if (profile.body !== undefined) {
     for (const k of BODY_KEYS) delete response[k];
@@ -174,10 +191,22 @@ export function toWireMockResponse(baseline, profile) {
       totalDuration: profile.dribble.durationMs
     };
   }
-  if (profile.errors) {
-    // Handled inside WireMock by the sv-errors extension (see extension/).
-    response.transformers = [...new Set([...(response.transformers ?? []), ERROR_TRANSFORMER])];
-    response.transformerParameters = { ...response.transformerParameters, [ERROR_PARAMS_KEY]: profile.errors };
+  const svParams = {};
+  if (profile.errors) svParams.svErrors = profile.errors;
+  if (profile.concurrency) {
+    const { maxConcurrent, maxQueue, queueTimeoutMs, reject } = profile.concurrency;
+    svParams.svConcurrency = {
+      pool: service ?? profile.name,
+      maxConcurrent,
+      ...(maxQueue !== undefined && { maxQueue }),
+      ...(queueTimeoutMs !== undefined && { queueTimeoutMs }),
+      rejectStatus: reject?.status ?? 503,
+      ...(reject?.body !== undefined && { rejectBody: reject.body })
+    };
+  }
+  if (Object.keys(svParams).length) {
+    response.transformers = [...new Set([...(response.transformers ?? []), SV_TRANSFORMER])];
+    response.transformerParameters = { ...response.transformerParameters, ...svParams };
   }
   return response;
 }

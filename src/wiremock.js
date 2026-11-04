@@ -60,6 +60,14 @@ export class WireMockClient {
     }
   }
 
+  async resetPool(name) {
+    try {
+      await this.#request('DELETE', `/sv/pools/${encodeURIComponent(name)}`);
+    } catch {
+      // Extension not loaded: nothing to reset.
+    }
+  }
+
   async listMappings() {
     return (await this.#request('GET', '/mappings')).mappings ?? [];
   }

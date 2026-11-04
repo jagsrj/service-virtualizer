@@ -73,6 +73,7 @@ test('bundled profiles all load', async () => {
   const profiles = await loadProfiles(path.join(root, 'profiles'));
   assert.deepEqual([...profiles.keys()].sort(), [
     'brownout',
+    'capacity-limited',
     'connection-reset',
     'degraded',
     'flaky',
@@ -97,7 +98,7 @@ test('error profiles add the sv-errors transformer and keep existing ones', () =
   });
   const baseline = { status: 200, transformers: ['response-template'], transformerParameters: { a: 1 } };
   const r = toWireMockResponse(baseline, p);
-  assert.deepEqual(r.transformers, ['response-template', 'sv-errors']);
+  assert.deepEqual(r.transformers, ['response-template', 'sv']);
   assert.equal(r.transformerParameters.a, 1);
   assert.deepEqual(r.transformerParameters.svErrors, {
     rate: 0.05,
@@ -108,7 +109,7 @@ test('error profiles add the sv-errors transformer and keep existing ones', () =
   });
   assert.deepEqual(baseline.transformers, ['response-template'], 'baseline must not be mutated');
   // Switching to a profile without errors removes the transformer again.
-  assert.equal(toWireMockResponse(baseline, parseProfile({ name: 'h' })).transformers.includes('sv-errors'), false);
+  assert.equal(toWireMockResponse(baseline, parseProfile({ name: 'h' })).transformers.includes('sv'), false);
 });
 
 test('invalid error settings are rejected', () => {
@@ -123,4 +124,32 @@ test('invalid error settings are rejected', () => {
   assert.throws(bad({ rate: 0.1, responses: [{ status: 500, fault: 'EMPTY_RESPONSE' }] }), /exactly one/);
   assert.throws(bad({ rate: 0.1, responses: [{ fault: 'EMPTY_RESPONSE', body: 'x' }] }), /body cannot/);
   assert.throws(bad({ rate: 0.1, responses: [{ status: 500 }] }, { fault: 'EMPTY_RESPONSE' }), /cannot be combined/);
+});
+
+test('concurrency profiles add an sv capacity pool named after the service', () => {
+  const p = parseProfile({
+    name: 'capped',
+    latency: { type: 'fixed', ms: 100 },
+    concurrency: { maxConcurrent: 20, maxQueue: 50, queueTimeoutMs: 2000, reject: { body: 'busy' } }
+  });
+  const r = toWireMockResponse({ status: 200 }, p, { service: 'doc-verify' });
+  assert.deepEqual(r.transformers, ['sv']);
+  assert.deepEqual(r.transformerParameters.svConcurrency, {
+    pool: 'doc-verify',
+    maxConcurrent: 20,
+    maxQueue: 50,
+    queueTimeoutMs: 2000,
+    rejectStatus: 503,
+    rejectBody: 'busy'
+  });
+  assert.equal(r.fixedDelayMilliseconds, 100, 'latency is still written; the extension samples it as service time');
+});
+
+test('invalid concurrency settings are rejected', () => {
+  assert.throws(() => parseProfile({ name: 'x', concurrency: { maxConcurrent: 0 } }), /maxConcurrent/);
+  assert.throws(() => parseProfile({ name: 'x', concurrency: { maxConcurrent: 2, maxQueue: -1 } }), /maxQueue/);
+  assert.throws(
+    () => parseProfile({ name: 'x', fault: 'EMPTY_RESPONSE', concurrency: { maxConcurrent: 2 } }),
+    /cannot be combined with fault/
+  );
 });

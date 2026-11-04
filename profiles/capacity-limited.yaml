@@ -1,0 +1,14 @@
+name: capacity-limited
+description: Healthy latency, but only 20 requests in flight at once (like a 20-thread pool). Beyond that, requests queue; 200 waiting or 5 seconds in the queue means a 503.
+latency:
+  type: lognormal
+  p50Ms: 80
+  p95Ms: 160
+  capMs: 1000
+concurrency:
+  maxConcurrent: 20
+  maxQueue: 200
+  queueTimeoutMs: 5000
+  reject:
+    status: 503
+    body: '{"error":"server_busy"}'

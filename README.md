@@ -64,7 +64,7 @@ errors:
 
 Bundled: `flaky` (2% errors, healthy latency) and `brownout` (slow, plus 10% errors including 10-second gateway timeouts).
 
-WireMock can't do percentage-based errors on its own, so this runs in a small WireMock extension (`extension/`, about 150 lines of Java). For each request, it picks error or normal using the profile's rate. Injected status errors carry an `X-SV-Injected: true` header, so you can tell them apart from real errors in JMeter results. `GET /api/services/:service/stats` reports the observed `errorRate`.
+WireMock can't do percentage-based errors on its own, so this runs in a small WireMock extension (`extension/`). The same extension also handles capacity limits (below). For each request, it picks error or normal using the profile's rate. Injected status errors carry an `X-SV-Injected: true` header, so you can tell them apart from real errors in JMeter results. `GET /api/services/:service/stats` reports the observed `errorRate`.
 
 The Compose stack builds WireMock with the extension included. To run it yourself:
 
@@ -75,6 +75,34 @@ java -cp wiremock-standalone-3.13.2.jar:target/sv-wiremock-extension.jar wiremoc
 ```
 
 The extension registers itself through Java's service loader, so no `--extensions` flag is needed. `GET /api/health` shows whether it's loaded. Applying an error profile without the extension is refused with a clear message rather than silently doing nothing.
+
+## Capacity limits
+
+A stub with unlimited capacity hides the most common real-world failure: the dependency runs out of threads. Add `concurrency` to a profile and the virtual service behaves like a server with a fixed worker pool:
+
+```yaml
+name: capacity-limited
+latency: { type: lognormal, p50Ms: 80, p95Ms: 160, capMs: 1000 }
+concurrency:
+  maxConcurrent: 20 # workers (e.g. the real service's thread pool)
+  maxQueue: 200 # optional: waiting requests beyond this are rejected immediately
+  queueTimeoutMs: 5000 # optional: requests that would wait longer are rejected after this long
+  reject: { status: 503, body: '{"error":"server_busy"}' }
+```
+
+Up to `maxConcurrent` requests are served at the profile's latency. Requests after that wait in a FIFO queue, so their latency becomes queue wait plus service time. Throughput levels off at `maxConcurrent / service time`, and latency climbs instead, just as Little's law predicts. Measured with 5 workers at 100ms (capacity 50 requests/s):
+
+| Concurrent users | Throughput | p50 latency |
+| ---------------- | ---------- | ----------- |
+| 2                | 19 req/s   | 106 ms      |
+| 5                | 48 req/s   | 104 ms      |
+| 25               | ~50 req/s  | 498 ms      |
+
+How it works: the extension models the pool mathematically (a multi-server queue) rather than blocking threads. Each arriving request is assigned the earliest-free worker and given a delay of queue wait plus a sampled service time. WireMock then schedules that delay asynchronously. So the cap you set is the only limit; WireMock's own threads aren't. The pool is shared by every stub in the service, like one real service's thread pool. Each profile switch or reset starts from an empty queue.
+
+Response headers for analysis in JMeter: `X-SV-Queue-Wait-Ms` on every response, and `X-SV-Rejected: true` on capacity rejections (kept separate from `X-SV-Injected` errors). `GET /api/services/:service/capacity` shows busy workers, queue length and totals live. The stats endpoint reports `rejectedRate` and the queue-wait percentiles.
+
+Capacity and error injection combine: an injected error still takes a worker, using its own `latencyMs` if it has one.
 
 ## Record mode
 
@@ -138,7 +166,7 @@ Saving never replaces an existing profile unless you pass `"overwrite": true`.
 - **Profile**: YAML in `profiles/`. It controls an error rate (see above), latency (`none`, `fixed`, `uniform`, `lognormal`), and optionally `status` + `body` (for example, a 503 outage), `dribble` (slow body), or a `fault` (`CONNECTION_RESET_BY_PEER`, `EMPTY_RESPONSE`, `MALFORMED_RESPONSE_CHUNK`, `RANDOM_DATA_THEN_CLOSE`).
 - **Baseline**: the stub's original response. It is saved the first time a profile is applied. Every profile is built from the baseline, so switching profiles never stacks delays, and `reset` restores it exactly.
 
-Bundled profiles: `healthy`, `degraded`, `slow-drip`, `outage-503`, `connection-reset`, `flaky`, `brownout`.
+Bundled profiles: `healthy`, `degraded`, `slow-drip`, `outage-503`, `connection-reset`, `flaky`, `brownout`, `capacity-limited`.
 
 ## Control API
 
@@ -177,7 +205,7 @@ Bundled profiles: `healthy`, `degraded`, `slow-drip`, `outage-503`, `connection-
 ```bash
 npm test                                                 # unit tests
 WIREMOCK_JAR=/path/to/wiremock-standalone.jar npm test   # plus end-to-end tests against a real WireMock
-SV_EXTENSION_JAR=extension/target/sv-wiremock-extension.jar WIREMOCK_JAR=... npm test   # plus error-injection tests
+SV_EXTENSION_JAR=extension/target/sv-wiremock-extension.jar WIREMOCK_JAR=... npm test   # plus error-injection and capacity tests
 ```
 
 The recording tests put a fake dependency with known latency (lognormal, median 100ms, sigma 0.4) behind WireMock. They check that the fit recovers it, that the recorded stubs answer once the dependency is shut down, and that replaying the fitted profile reproduces the latency.
@@ -187,6 +215,6 @@ The recording tests put a fake dependency with known latency (lognormal, median 
 1. ✅ WireMock engine + control API + latency/fault profiles
 2. ✅ Record mode: proxy to the real dependency, save stubs, and **fit a profile to the recorded latencies**
 3. ✅ Error-rate profiles (for example, 2% of requests return 500), via a WireMock extension
-4. Concurrency caps, so the virtual service saturates like the real one
+4. ✅ Concurrency caps, so the virtual service saturates like the real one
 5. Metrics to InfluxDB/Grafana; hooks for perf-framework (start services before a run) and chaos-runner (switch profiles mid-test)
 6. More protocols: SOAP, gRPC, then Kafka/MQ

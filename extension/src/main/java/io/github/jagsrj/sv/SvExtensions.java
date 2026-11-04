@@ -5,14 +5,14 @@ import com.github.tomakehurst.wiremock.extension.ExtensionFactory;
 import com.github.tomakehurst.wiremock.extension.WireMockServices;
 import java.util.List;
 
-/** Load with: --extensions io.github.jagsrj.sv.SvExtensions */
+/** Registered through META-INF/services: putting the jar on WireMock's classpath is enough. */
 public class SvExtensions implements ExtensionFactory {
 
-  public static final String VERSION = "0.3.0";
+  public static final String VERSION = "0.4.0";
 
   @Override
   public List<Extension> create(WireMockServices services) {
-    SvErrorInjector injector = new SvErrorInjector();
-    return List.of(injector, new SvAdminApi(injector));
+    SvTransformer transformer = new SvTransformer();
+    return List.of(transformer, new SvAdminApi(transformer));
   }
 }

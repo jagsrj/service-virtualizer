@@ -91,7 +91,7 @@ const verify = () => post(`${mock}/v1/documents/verify`, { documentType: 'PASSPO
 
 test('health reports the extension', { skip }, async () => {
   const health = await (await fetch(`${api}/health`)).json();
-  assert.deepEqual(health.errorInjection, { loaded: true, version: '0.3.0' });
+  assert.deepEqual(health.errorInjection, { loaded: true, version: '0.4.0' });
 });
 
 test('injects errors at the configured rate and weights', { skip }, async () => {
