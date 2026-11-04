@@ -22,8 +22,8 @@ services:
     environment:
       WIREMOCK_URL: http://wiremock:8080
     volumes:
-      - ../profiles:/app/profiles   # writable: fitted profiles are saved here
-      - ../stubs:/app/stubs         # writable: recorded stubs are saved here
+      - ../profiles:/app/profiles # writable: fitted profiles are saved here
+      - ../stubs:/app/stubs # writable: recorded stubs are saved here
     depends_on:
       wiremock:
         condition: service_healthy

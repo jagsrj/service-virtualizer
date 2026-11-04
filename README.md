@@ -64,7 +64,7 @@ The stop response shows what was captured and how good the fit is:
   "profileFile": "profiles/core-banking-recorded.yaml",
   "fit": {
     "observedMs": { "p50": 107, "p90": 178, "p95": 207, "p99": 238, "max": 358 },
-    "fittedMs":   { "p50": 107, "p90": 179, "p95": 207, "p99": 272 },
+    "fittedMs": { "p50": 107, "p90": 179, "p95": 207, "p99": 272 },
     "fitErrorPct": { "p90": 0.6, "p99": 14.3 },
     "warnings": []
   }
@@ -74,6 +74,7 @@ The stop response shows what was captured and how good the fit is:
 Then replay it with the real dependency switched off: `POST /api/services/core-banking/profile {"profile":"core-banking-recorded"}`.
 
 How it works:
+
 - WireMock proxies to `targetUrl` and records one stub per unique request (JSON bodies matched with `equalToJson`, ignoring extra fields and array order).
 - The real response time of every proxied request is read from WireMock's journal.
 - The fit uses **quantile matching**: median = observed p50, and sigma comes from observed p95. The p50 and p95 the fit reproduces are the ones you report on. The cap is the largest latency observed.
@@ -81,6 +82,7 @@ How it works:
 - Warnings flag small samples (under 20) and tails that aren't lognormal-shaped. A common case is a bimodal cache hit/miss pattern, where the fitted p99 would mislead.
 
 Things to know:
+
 - Requests that already match an existing stub are answered by that stub, not recorded. Record into a new service name.
 - Recorded latency includes the proxy hop, and replay adds WireMock's own processing time (a few ms on real hardware; ~10–15ms in a constrained container). This only matters for dependencies that respond in under ~20ms.
 - One recording at a time (a WireMock limitation).
