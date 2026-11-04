@@ -60,6 +60,15 @@ export class WireMockClient {
     }
   }
 
+  // Per-service metrics since the last drain (from the extension), or null if it isn't loaded.
+  async drainMetrics() {
+    try {
+      return await this.#request('POST', '/sv/metrics/drain');
+    } catch {
+      return null;
+    }
+  }
+
   async resetPool(name) {
     try {
       await this.#request('DELETE', `/sv/pools/${encodeURIComponent(name)}`);

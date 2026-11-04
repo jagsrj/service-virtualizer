@@ -1,9 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Recorder } from './recorder.js';
-import { createApp } from './server.js';
-import { Virtualizer } from './virtualizer.js';
-import { WireMockClient } from './wiremock.js';
+import { buildApp } from './app.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -12,24 +9,21 @@ const config = {
   wiremockUrl: process.env.WIREMOCK_URL ?? 'http://localhost:8080',
   profilesDir: process.env.PROFILES_DIR ?? path.join(root, 'profiles'),
   stubsDir: process.env.STUBS_DIR ?? path.join(root, 'stubs'),
+  timelinesDir: process.env.TIMELINES_DIR ?? path.join(root, 'timelines'),
   loadStubsOnStart: process.env.LOAD_STUBS_ON_START !== 'false',
-  saveRecordings: process.env.SAVE_RECORDINGS !== 'false'
+  saveRecordings: process.env.SAVE_RECORDINGS !== 'false',
+  influxWriteUrl: process.env.INFLUXDB_WRITE_URL ?? '',
+  metricsIntervalMs: Number(process.env.METRICS_INTERVAL_MS ?? 5000)
 };
 
-const wiremock = new WireMockClient(config.wiremockUrl);
-const virtualizer = new Virtualizer({ wiremock, profilesDir: config.profilesDir, stubsDir: config.stubsDir });
-
-await virtualizer.reloadProfiles();
+const { app, virtualizer } = await buildApp(config);
 console.log(`Loaded ${virtualizer.profiles.size} profiles from ${config.profilesDir}`);
+console.log(
+  config.influxWriteUrl
+    ? `Exporting metrics every ${config.metricsIntervalMs}ms to ${config.influxWriteUrl}`
+    : 'INFLUXDB_WRITE_URL not set: metrics are available at /api/metrics/latest only'
+);
 
-if (config.loadStubsOnStart) {
-  await wiremock.waitUntilUp();
-  const { stubsLoaded, services } = await virtualizer.loadStubs();
-  console.log(`Loaded ${stubsLoaded} stubs into WireMock for: ${services.join(', ') || '(none)'}`);
-}
-
-const recorder = new Recorder({ virtualizer, save: config.saveRecordings });
-
-createApp(virtualizer, recorder).listen(config.port, () => {
+app.listen(config.port, () => {
   console.log(`service-virtualizer control API on :${config.port} (WireMock at ${config.wiremockUrl})`);
 });

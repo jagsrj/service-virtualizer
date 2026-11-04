@@ -1,0 +1,587 @@
+{
+  "uid": "service-virtualizer",
+  "title": "Virtual services",
+  "tags": ["service-virtualizer", "performance"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "5s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "name": "Profile changes",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "enable": true,
+        "iconColor": "orange",
+        "query": "SELECT \"title\", \"service\" FROM \"virtual_service_events\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/",
+        "target": {
+          "query": "SELECT \"title\", \"service\" FROM \"virtual_service_events\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/",
+          "rawQuery": true,
+          "refId": "Anno"
+        },
+        "textColumn": "title",
+        "tagsColumn": "service"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "runId",
+        "label": "Run ID",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": false,
+        "allValue": ".*",
+        "definition": "SHOW TAG VALUES FROM \"virtual_service\" WITH KEY = \"runId\"",
+        "query": "SHOW TAG VALUES FROM \"virtual_service\" WITH KEY = \"runId\"",
+        "current": {}
+      },
+      {
+        "name": "service",
+        "label": "Virtual service",
+        "type": "query",
+        "datasource": {
+          "type": "influxdb",
+          "uid": "influxdb"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "definition": "SHOW TAG VALUES FROM \"virtual_service\" WITH KEY = \"service\" WHERE \"runId\" =~ /^${runId:regex}$/",
+        "query": "SHOW TAG VALUES FROM \"virtual_service\" WITH KEY = \"service\" WHERE \"runId\" =~ /^${runId:regex}$/",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Throughput by virtual service",
+      "description": "Requests per second each virtual service answered.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "SELECT mean(\"rps\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "p95 latency by virtual service",
+      "description": "Latency the virtual service actually served, including any queue wait. Compare with the app's own latency in the JMeter dashboard.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "SELECT mean(\"latencyP95\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Latency percentiles",
+      "description": "p50 / p95 / p99 / max per interval (percentiles from a uniform sample of up to 10,000 requests per service per interval).",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "SELECT mean(\"latencyP50\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service p50",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        },
+        {
+          "refId": "B",
+          "query": "SELECT mean(\"latencyP95\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service p95",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        },
+        {
+          "refId": "C",
+          "query": "SELECT mean(\"latencyP99\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service p99",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        },
+        {
+          "refId": "D",
+          "query": "SELECT max(\"latencyMax\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service max",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Error rate",
+      "description": "5xx responses and connection faults as a % of requests, whether injected by a profile or capacity rejections.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 10
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "SELECT sum(\"errors\") / sum(\"count\") * 100 FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Injected errors vs capacity rejections",
+      "description": "Injected: errors from the profile's error rate. Rejected: requests turned away because the capacity pool's queue was full or timed out.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "SELECT sum(\"injected\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service injected",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        },
+        {
+          "refId": "B",
+          "query": "SELECT sum(\"rejected\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service rejected",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Capacity pool",
+      "description": "Busy workers and queue length, sampled at the end of each interval. Busy at max with a growing queue means the dependency is saturated.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "SELECT mean(\"busy\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service busy workers",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        },
+        {
+          "refId": "B",
+          "query": "SELECT mean(\"waiting\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service queued",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        },
+        {
+          "refId": "C",
+          "query": "SELECT max(\"maxConcurrent\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service max workers",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Queue wait",
+      "description": "Time requests spent waiting for a free worker before being served.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "SELECT mean(\"queueWaitMean\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service mean",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        },
+        {
+          "refId": "B",
+          "query": "SELECT max(\"queueWaitMax\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" =~ /^${service:regex}$/ GROUP BY time($__interval), \"service\" fill(null)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "$tag_service max",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Unmatched requests",
+      "description": "Requests no stub matched (WireMock answers 404). Anything above zero means the test is hitting endpoints that aren't virtualised.",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "spanNulls": true,
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "SELECT sum(\"count\") FROM \"virtual_service\" WHERE $timeFilter AND \"runId\" =~ /^${runId:regex}$/ AND \"service\" = 'unmatched' GROUP BY time($__interval) fill(0)",
+          "rawQuery": true,
+          "resultFormat": "time_series",
+          "alias": "unmatched",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.jagsrj</groupId>
   <artifactId>sv-wiremock-extension</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
   <name>service-virtualizer WireMock extension</name>
   <description>Error injection and capacity (concurrency) modelling for WireMock, driven by service-virtualizer profiles.</description>
 

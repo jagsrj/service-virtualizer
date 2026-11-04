@@ -1,0 +1,20 @@
+# Run alongside perf-framework: joins its Docker network and writes metrics into its
+# InfluxDB (database "jmeter"), so virtual-service metrics sit next to JMeter's in Grafana.
+#
+#   cd perf-framework/infra && docker compose up -d          # start perf-framework first
+#   cd service-virtualizer/infra && docker compose -f docker-compose.yml -f docker-compose.perf-framework.yml up -d --build
+services:
+  wiremock:
+    networks: [default, perf-framework]
+  control:
+    environment:
+      INFLUXDB_WRITE_URL: http://influxdb:8086/write?db=jmeter
+      METRICS_INTERVAL_MS: '5000'
+    volumes:
+      - ../timelines:/app/timelines
+    networks: [default, perf-framework]
+
+networks:
+  perf-framework:
+    name: infra_jmeter-network
+    external: true

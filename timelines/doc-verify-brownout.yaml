@@ -1,0 +1,15 @@
+name: doc-verify-brownout
+description: 'Steady state for 5 minutes, a 2-minute brownout of document verification, then recovery. Shows whether the app degrades gracefully and recovers.'
+steps:
+  - at: 0s
+    service: doc-verify
+    profile: healthy
+  - at: 5m
+    service: doc-verify
+    profile: brownout
+  - at: 7m
+    service: doc-verify
+    profile: healthy
+  - at: 10m
+    service: doc-verify
+    reset: true

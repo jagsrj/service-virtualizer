@@ -8,11 +8,12 @@ import java.util.List;
 /** Registered through META-INF/services: putting the jar on WireMock's classpath is enough. */
 public class SvExtensions implements ExtensionFactory {
 
-  public static final String VERSION = "0.4.0";
+  public static final String VERSION = "0.5.0";
 
   @Override
   public List<Extension> create(WireMockServices services) {
     SvTransformer transformer = new SvTransformer();
-    return List.of(transformer, new SvAdminApi(transformer));
+    SvMetrics metrics = new SvMetrics();
+    return List.of(transformer, metrics, new SvAdminApi(transformer, metrics));
   }
 }

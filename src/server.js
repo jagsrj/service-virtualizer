@@ -8,6 +8,16 @@ const startBody = z
   .object({ service: z.string(), targetUrl: z.string(), urlPathPattern: z.string().optional() })
   .strict();
 const stopBody = z.object({ save: z.boolean().optional(), fit: z.boolean().optional() }).strict();
+const runBody = z
+  .object({
+    runId: z.string().min(1).max(200),
+    scenario: z.string().max(200).optional(),
+    timeline: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]*$/)
+      .optional()
+  })
+  .strict();
 const fitBody = z
   .object({
     name: z.string(),
@@ -24,7 +34,7 @@ function parseBody(schema, body, hint) {
   return parsed.data;
 }
 
-export function createApp(virtualizer, recorder) {
+export function createApp(virtualizer, recorder, { metrics, timelines, runs } = {}) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -42,7 +52,8 @@ export function createApp(virtualizer, recorder) {
         status: 'ok',
         wiremock: up ? 'up' : 'down',
         wiremockUrl: virtualizer.wiremock.baseUrl,
-        errorInjection: ext ? { loaded: true, version: ext.version } : { loaded: false }
+        errorInjection: ext ? { loaded: true, version: ext.version } : { loaded: false },
+        metrics: metrics?.enabled ? { exporting: true, runId: metrics.runId } : { exporting: false }
       };
     })
   );
@@ -112,6 +123,47 @@ export function createApp(virtualizer, recorder) {
   app.get(
     '/api/services/:service/capacity',
     route((req) => virtualizer.capacity(req.params.service))
+  );
+
+  // Runs: perf-framework starts one with its runId (and scenario) and ends it when the run
+  // finishes, so metrics line up with JMeter's and scenario timelines play automatically.
+  app.get(
+    '/api/runs/current',
+    route(() => runs.current())
+  );
+  app.post(
+    '/api/runs',
+    route((req) => runs.start(parseBody(runBody, req.body, '{"runId", "scenario"?, "timeline"?}')))
+  );
+  app.delete(
+    '/api/runs/current',
+    route(() => runs.end())
+  );
+  app.delete(
+    '/api/runs/:runId',
+    route((req) => runs.end(req.params.runId))
+  );
+
+  app.get(
+    '/api/metrics/latest',
+    route(() => metrics?.latest ?? { services: {} })
+  );
+
+  app.get(
+    '/api/timelines',
+    route(() => timelines.listFiles())
+  );
+  app.get(
+    '/api/timelines/current',
+    route(() => timelines.current())
+  );
+  app.post(
+    '/api/timelines',
+    route((req) => timelines.start(req.body ?? {}))
+  );
+  app.delete(
+    '/api/timelines/current',
+    route((req) => timelines.cancel({ reset: req.query.reset === 'true' }))
   );
 
   app.get(

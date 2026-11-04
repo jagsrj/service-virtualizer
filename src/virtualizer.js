@@ -19,6 +19,33 @@ export class Virtualizer {
     this.stubsDir = stubsDir;
     this.profiles = new Map();
     this.locks = new Map();
+    this.activeProfiles = new Map(); // service -> profile name, for metric tags
+    this.listeners = [];
+  }
+
+  // Called with { service, profile, reason } after every profile change.
+  onChange(listener) {
+    this.listeners.push(listener);
+  }
+
+  profileOf(service) {
+    return this.activeProfiles.get(service) ?? 'baseline';
+  }
+
+  // Pick up profiles already applied in WireMock (e.g. after this service restarts).
+  async syncActiveProfiles() {
+    for (const s of await this.listServices()) this.activeProfiles.set(s.name, s.profile);
+  }
+
+  #changed(service, profile, reason) {
+    this.activeProfiles.set(service, profile);
+    for (const listener of this.listeners) {
+      try {
+        listener({ service, profile, reason });
+      } catch (err) {
+        console.warn(`Profile change listener failed: ${err.message}`);
+      }
+    }
   }
 
   async reloadProfiles() {
@@ -56,7 +83,7 @@ export class Virtualizer {
       }));
   }
 
-  applyProfile(service, profileName) {
+  applyProfile(service, profileName, { reason = 'api' } = {}) {
     const profile = this.getProfile(profileName);
     return this.#withLock(service, async () => {
       if ((profile.errors || profile.concurrency) && !(await this.wiremock.extensionInfo())) {
@@ -79,6 +106,7 @@ export class Virtualizer {
       }
       // Every profile switch starts with an empty queue.
       await this.wiremock.resetPool(service);
+      this.#changed(service, profile.name, reason);
       return {
         service,
         profile: profile.name,
@@ -89,7 +117,7 @@ export class Virtualizer {
     });
   }
 
-  resetService(service) {
+  resetService(service, { reason = 'api' } = {}) {
     return this.#withLock(service, async () => {
       const mappings = await this.#mappingsFor(service);
       let restored = 0;
@@ -100,6 +128,7 @@ export class Virtualizer {
         restored += 1;
       }
       await this.wiremock.resetPool(service);
+      this.#changed(service, 'baseline', reason);
       return { service, profile: 'baseline', stubsRestored: restored };
     });
   }

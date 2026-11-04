@@ -160,6 +160,61 @@ curl -X POST localhost:4100/api/profiles/fit -H 'content-type: application/json'
 
 Saving never replaces an existing profile unless you pass `"overwrite": true`.
 
+## Metrics, runs and timelines
+
+### Metrics in Grafana
+
+The WireMock extension counts every request it serves, per virtual service. It doesn't use the request journal, which is capped and best turned off for long tests. Every 5 seconds the control API writes one point per service to InfluxDB 1.x: the same database perf-framework's JMeter listener uses, tagged with the same `runId`.
+
+- `virtual_service` (tags `service`, `profile`, `runId`): `rps`, `count`, `status2xx`…`status5xx`, `faults`, `errors`, `errorRate`, `injected`, `rejected`, `latencyMean`/`P50`/`P90`/`P95`/`P99`/`Max`, `queueWaitMean`/`Max`, and for capacity-limited services `busy`, `waiting`, `maxConcurrent`.
+- `virtual_service_events`: one point per profile change, shown as annotations on the dashboard.
+
+Import `grafana/service-virtualizer-dashboard.json` into perf-framework's Grafana (it uses the `influxdb` datasource). It has throughput, latency percentiles, error rate, injected vs rejected, capacity pool, queue wait and unmatched requests, with `runId` and `service` filters. `service="unmatched"` counts requests no stub answered. Anything above zero means the test is hitting endpoints that aren't virtualised.
+
+The `profile` tag is the profile active at the end of each interval. Annotations mark the exact switch time.
+
+Without InfluxDB, `GET /api/metrics/latest` returns the most recent interval.
+
+### Runs
+
+```bash
+curl -X POST localhost:4100/api/runs -H 'content-type: application/json' -d '{"runId":"20261104-0930-checkout","scenario":"Checkout Load"}'
+# ... test runs ...
+curl -X DELETE localhost:4100/api/runs/20261104-0930-checkout
+```
+
+Starting a run tags all metrics with its `runId`. If `timelines/<scenario-name>.yaml` exists (the name lowercased with dashes, e.g. `checkout-load.yaml`), that timeline starts automatically. Ending the run flushes the final interval, cancels the run's timeline and resets the services it touched. Ending an old run that isn't the current one is ignored. A timeline that can't start, for example one naming an unknown profile, doesn't block the run; the response carries a `warning` instead.
+
+perf-framework does this for you when `SERVICE_VIRTUALIZER_URL` is set (see perf-framework's docs).
+
+### Timelines
+
+Profile changes on a schedule, for degradation tests and chaos experiments:
+
+```yaml
+# timelines/doc-verify-brownout.yaml
+name: doc-verify-brownout
+steps:
+  - { at: 0s, service: doc-verify, profile: healthy }
+  - { at: 5m, service: doc-verify, profile: brownout }
+  - { at: 7m, service: doc-verify, profile: healthy }
+  - { at: 10m, service: doc-verify, reset: true }
+```
+
+- `POST /api/timelines {"name": "doc-verify-brownout"}` runs a file. `POST /api/timelines {"steps": [...]}` runs inline steps, which suits chaos-runner experiments.
+- Every step is validated before anything starts, so a typo in a profile name fails now rather than at minute 7. Steps at `0` are applied before the call returns.
+- `GET /api/timelines/current` shows each step's status. `DELETE /api/timelines/current?reset=true` cancels and resets.
+- One timeline at a time. Timers live in the control service, so restarting it cancels a running timeline.
+
+### Running next to perf-framework
+
+```bash
+cd perf-framework/infra && docker compose up -d
+cd service-virtualizer/infra && docker compose -f docker-compose.yml -f docker-compose.perf-framework.yml up -d --build
+```
+
+The override joins perf-framework's Docker network (`infra_jmeter-network`) and points the exporter at its InfluxDB.
+
 ## Concepts
 
 - **Virtual service**: every stub in `stubs/<service>/` belongs to that service (stored as `metadata.service` in WireMock). Profiles are applied to a whole service at once.
@@ -205,7 +260,7 @@ Bundled profiles: `healthy`, `degraded`, `slow-drip`, `outage-503`, `connection-
 ```bash
 npm test                                                 # unit tests
 WIREMOCK_JAR=/path/to/wiremock-standalone.jar npm test   # plus end-to-end tests against a real WireMock
-SV_EXTENSION_JAR=extension/target/sv-wiremock-extension.jar WIREMOCK_JAR=... npm test   # plus error-injection and capacity tests
+SV_EXTENSION_JAR=extension/target/sv-wiremock-extension.jar WIREMOCK_JAR=... npm test   # plus error-injection, capacity and metrics tests
 ```
 
 The recording tests put a fake dependency with known latency (lognormal, median 100ms, sigma 0.4) behind WireMock. They check that the fit recovers it, that the recorded stubs answer once the dependency is shut down, and that replaying the fitted profile reproduces the latency.
@@ -216,5 +271,5 @@ The recording tests put a fake dependency with known latency (lognormal, median 
 2. ✅ Record mode: proxy to the real dependency, save stubs, and **fit a profile to the recorded latencies**
 3. ✅ Error-rate profiles (for example, 2% of requests return 500), via a WireMock extension
 4. ✅ Concurrency caps, so the virtual service saturates like the real one
-5. Metrics to InfluxDB/Grafana; hooks for perf-framework (start services before a run) and chaos-runner (switch profiles mid-test)
+5. ✅ Metrics to InfluxDB/Grafana; runs tagged with perf-framework's runId; timelines for mid-test profile changes (perf-framework and chaos-runner)
 6. More protocols: SOAP, gRPC, then Kafka/MQ
